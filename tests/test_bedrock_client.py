@@ -24,7 +24,7 @@ def test_valid_json_response_parsed(mock_boto):
 
     mock_client = MagicMock()
     mock_client.converse.return_value = _make_bedrock_response(good_response)
-    mock_client.exceptions.ThrottlingException = Exception
+    mock_client.exceptions.ThrottlingException = type("ThrottlingException", (Exception,), {})
     mock_boto.return_value = mock_client
 
     client = BedrockRemediationClient()
@@ -47,7 +47,7 @@ def test_markdown_fenced_json_parsed(mock_boto):
 
     mock_client = MagicMock()
     mock_client.converse.return_value = _make_bedrock_response(wrapped)
-    mock_client.exceptions.ThrottlingException = Exception
+    mock_client.exceptions.ThrottlingException = type("ThrottlingException", (Exception,), {})
     mock_boto.return_value = mock_client
 
     client = BedrockRemediationClient()
@@ -63,7 +63,7 @@ def test_missing_required_key_raises(mock_boto):
 
     mock_client = MagicMock()
     mock_client.converse.return_value = _make_bedrock_response(partial)
-    mock_client.exceptions.ThrottlingException = Exception
+    mock_client.exceptions.ThrottlingException = type("ThrottlingException", (Exception,), {})
     mock_boto.return_value = mock_client
 
     client = BedrockRemediationClient()
@@ -77,7 +77,7 @@ def test_invalid_json_raises(mock_boto):
 
     mock_client = MagicMock()
     mock_client.converse.return_value = _make_bedrock_response("not json at all")
-    mock_client.exceptions.ThrottlingException = Exception
+    mock_client.exceptions.ThrottlingException = type("ThrottlingException", (Exception,), {})
     mock_boto.return_value = mock_client
 
     client = BedrockRemediationClient()
