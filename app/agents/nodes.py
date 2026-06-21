@@ -86,8 +86,13 @@ def generate_fix(state: AgentState) -> AgentState:
     prompt = (
         f"Root cause: {state['root_cause']}\n\n"
         f"Original workflow YAML:\n{state['workflow_yaml']}\n\n"
-        "Generate the corrected YAML. Return ONLY the complete, valid YAML — no commentary, "
-        "no markdown fences."
+        "You MUST produce the complete corrected workflow YAML. Rules:\n"
+        "- If a tool/language version is invalid (e.g. python-version: '99'), replace it with "
+        "the latest stable version (e.g. '3.12' for Python, '20' for Node.js, '21' for Java).\n"
+        "- Make the minimal change needed to fix the root cause.\n"
+        "- Return ONLY the complete, valid YAML — no prose, no markdown fences, no explanations.\n"
+        "- If you are uncertain about a version, use the most recent LTS/stable release.\n"
+        "- Never say you cannot determine something — always produce the corrected YAML."
     )
     fixed_yaml = _invoke_bedrock_agent("yaml_fixer", session_id, prompt)
     if fixed_yaml.startswith("```"):
