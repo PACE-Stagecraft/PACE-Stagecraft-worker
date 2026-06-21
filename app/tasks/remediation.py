@@ -113,10 +113,27 @@ def _upsert_workflow_run(session: Session, message: dict) -> uuid.UUID:
                 :created_at, :updated_at
             )
             ON CONFLICT (github_run_id) DO UPDATE SET
-                status = EXCLUDED.status,
-                conclusion = EXCLUDED.conclusion,
+                -- Only advance status forward: queued < in_progress < completed.
+                -- A late out-of-order SQS delivery must NEVER regress a
+                -- completed run back to queued or in_progress.
+                status = CASE
+                    WHEN workflow_runs.status = 'completed' THEN workflow_runs.status
+                    WHEN workflow_runs.status = 'in_progress' AND EXCLUDED.status = 'queued'
+                        THEN workflow_runs.status
+                    ELSE EXCLUDED.status
+                END,
+                -- Only update conclusion when we are actually completing the run.
+                conclusion = CASE
+                    WHEN EXCLUDED.status = 'completed' THEN EXCLUDED.conclusion
+                    ELSE workflow_runs.conclusion
+                END,
                 started_at = COALESCE(EXCLUDED.started_at, workflow_runs.started_at),
-                completed_at = COALESCE(EXCLUDED.completed_at, workflow_runs.completed_at),
+                -- Only set completed_at when the run is actually completing.
+                completed_at = CASE
+                    WHEN EXCLUDED.status = 'completed'
+                        THEN COALESCE(EXCLUDED.completed_at, workflow_runs.completed_at)
+                    ELSE workflow_runs.completed_at
+                END,
                 html_url = EXCLUDED.html_url,
                 updated_at = EXCLUDED.updated_at
             RETURNING id
