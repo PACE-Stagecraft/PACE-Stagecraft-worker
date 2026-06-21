@@ -141,47 +141,96 @@ Analyze the failure and provide a fix. Respond with ONLY valid JSON in this exac
 
         raise RuntimeError("Bedrock invocation failed after retries") from last_exception
 
-    def generate_yaml_fix(self, workflow_yaml: str, root_cause: str) -> str:
+    def generate_yaml_fix(
+        self,
+        workflow_yaml: str,
+        root_cause: str,
+        failure_category: str = "UNKNOWN",
+        logs: str = "",
+    ) -> str:
         """Directly generate a corrected workflow YAML via the Converse API.
 
         Used as a fallback when the yaml_fixer Bedrock Agent returns a capability
         refusal instead of actual YAML (e.g. its system prompt restricts it from
         writing files). This path calls the model directly — no agent, no tool use.
 
+        Args:
+            workflow_yaml: The original failing YAML content.
+            root_cause: Specific root cause string from analyse_root_cause.
+            failure_category: One of the 9 classifier categories (e.g. AUTH_FAILURE).
+            logs: Last N lines of failure logs for extra context.
+
         Returns:
             The corrected YAML as a string.
         Raises:
             RuntimeError: If the model refuses or returns unusable output.
         """
+        # Per-category fix guidance — tells the model *what kind* of change to make
+        _CATEGORY_HINTS = {
+            "DEPENDENCY_VERSION": (
+                "The issue is an invalid/outdated dependency or language version. "
+                "Replace it with the correct stable version from the canonical table below."
+            ),
+            "AUTH_FAILURE": (
+                "The issue is authentication. Common fixes: correct a mistyped secret name "
+                "(e.g. ${{ secrets.GITHUB_TOKEN }} not GITHUB_TOKENS), add a missing "
+                "permissions block, or fix an env var that should reference a secret."
+            ),
+            "NETWORK_TIMEOUT": (
+                "The issue is a network timeout. Common fixes: add --retry / --connect-timeout "
+                "flags to curl/wget commands, increase timeout values, or add a 'continue-on-error: true' "
+                "with a retry step."
+            ),
+            "CONFIG_ERROR": (
+                "The issue is a YAML config error. Fix the invalid key name, indentation, "
+                "or syntax that caused the failure."
+            ),
+            "TEST_FAILURE": (
+                "Tests failed. Fix the workflow step that runs tests — e.g. correct the test "
+                "command, install missing test dependencies, or set required env vars."
+            ),
+            "BUILD_ERROR": (
+                "The build failed. Fix the build step — e.g. add missing build dependencies, "
+                "correct the build command, or fix a missing env var."
+            ),
+            "LINT_ERROR": (
+                "A linting/formatting check failed. Fix the lint step — e.g. update the linter "
+                "version, correct the lint command, or add a step to auto-fix."
+            ),
+            "PERMISSION_ERROR": (
+                "A permissions error occurred. Add or correct the 'permissions:' block in the "
+                "workflow or job, e.g. 'contents: read', 'pull-requests: write'."
+            ),
+            "UNKNOWN": (
+                "Apply the minimal change to the YAML that directly addresses the root cause."
+            ),
+        }
+        category_hint = _CATEGORY_HINTS.get(failure_category, _CATEGORY_HINTS["UNKNOWN"])
+
+        logs_section = (
+            f"\nRELEVANT FAILURE LOGS (last 100 lines):\n{logs[-3000:]}\n"
+            if logs else ""
+        )
+
         prompt = (
             "You are an expert GitHub Actions DevOps engineer fixing a broken CI workflow.\n\n"
-            f"ROOT CAUSE: {root_cause}\n\n"
+            f"FAILURE CATEGORY: {failure_category}\n"
+            f"ROOT CAUSE: {root_cause}\n"
+            f"FIX GUIDANCE: {category_hint}\n"
+            f"{logs_section}\n"
             "ORIGINAL FAILING YAML:\n"
             "```yaml\n"
             f"{workflow_yaml}\n"
             "```\n\n"
-            "CANONICAL STABLE VERSIONS (use these when a version is invalid or missing):\n"
-            "  Python  → 3.12\n"
-            "  Node.js → 20\n"
-            "  Java    → 21\n"
-            "  Ruby    → 3.3\n"
-            "  Go      → 1.22\n"
-            "  Rust    → stable\n"
-            "  Ubuntu  → ubuntu-22.04\n"
-            "  actions/checkout        → v4\n"
-            "  actions/setup-python    → v5\n"
-            "  actions/setup-node      → v4\n"
-            "  actions/setup-java      → v4\n"
-            "  actions/upload-artifact → v4\n\n"
-            "STRICT RULES — violating any rule makes your response invalid:\n"
+            "CANONICAL STABLE VERSIONS (reference for DEPENDENCY_VERSION fixes):\n"
+            "  Python → 3.12 | Node.js → 20 | Java → 21 | Ruby → 3.3 | Go → 1.22\n"
+            "  actions/checkout → v4 | actions/setup-python → v5 | actions/setup-node → v4\n\n"
+            "STRICT OUTPUT RULES:\n"
             "1. Output ONLY the corrected YAML. Zero prose. Zero explanation.\n"
             "2. Do NOT use markdown fences (no ```).\n"
-            "3. Do NOT ask questions or say you need more information.\n"
-            "4. Do NOT say 'I need to ask' or 'please provide' or 'I cannot determine'.\n"
-            "5. If a version number is clearly invalid (e.g. '99', '0', 'latest'), "
-            "replace it with the canonical stable version from the table above.\n"
-            "6. Make the MINIMAL change required — keep every other line identical.\n"
-            "7. Your first output character must be 'n' (start of 'name:') or '-' or 'o' (start of 'on:').\n\n"
+            "3. Do NOT ask questions. Do NOT say 'I need to ask' or 'please provide'.\n"
+            "4. Make the MINIMAL change required — keep every other line identical.\n"
+            "5. If a version is clearly invalid (e.g. '99', '0'), replace with the stable version above.\n"
             "Output the corrected YAML now:"
         )
         max_retries = 2

@@ -205,6 +205,8 @@ def generate_fix(state: AgentState) -> AgentState:
         fixed_yaml = fallback.generate_yaml_fix(
             workflow_yaml=state["workflow_yaml"],
             root_cause=state["root_cause"],
+            failure_category=state.get("failure_category", "UNKNOWN"),
+            logs=state.get("logs", ""),
         )
 
     trace.append("generate_fix → suggested_yaml produced")
